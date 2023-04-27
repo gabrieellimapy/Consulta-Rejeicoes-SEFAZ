@@ -48,8 +48,8 @@ class InterfaceGUI(tk.Frame): #Comando incial para uma janela gráfica
         self.consultar_button = tk.Button(self, text='Consultar Código', command=self.consultar_rej) #Cria um botão na tela que permite a consulta de código e executa a função Consultar Rej criada no início do código
         self.consultar_button.pack(side='left') #Exibe o botão no lado esquerdo da tela
         
-        self.result_label = tk.Label(self,text='')
-        self.result_label.pack(side='top', pady=10)
+        self.result_label = tk.Label(self,text='')#Colocando os resultados na tela
+        self.result_label.pack(side='top', pady=10)#Centralizando resultados
         
     def consultar_rej(self): #Cria uma função que busca as informações relacionadas ao código de rejeição inserido
         cod = self.cod_entry.get() #Busca o valor da caixa de entrada onde foi inserida as informações
