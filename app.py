@@ -1,63 +1,262 @@
-import csv, tkinter as tk, openai
+import csv
+import openai
+import asyncio
+import telegram
+import threading
+import logging
+import nest_asyncio
+import configparser
+from typing import Dict
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import (
+    filters, 
+    MessageHandler, 
+    ApplicationBuilder, 
+    CommandHandler, 
+    ContextTypes,
+    ConversationHandler
+)
 
-# ---------------------------- Leitura do arquivo ---------------------------- #
-with open('data/rejeicoes.csv', encoding='utf-8') as database:
+nest_asyncio.apply()
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+CHOOSING, TYPING_REPLY, TYPING_CHOICE = range(3)
+
+reply_keyboard = [
+    ["Erros de Rejeição"],
+    ["Pesquisar"],
+    ["Sair"],
+]
+markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+
+config = configparser.ConfigParser()
+config.read('config/config.ini')
+
+tokenbot = config['TESTING']['TOKENBOT']
+tokenopneai = config['TESTING']['TOKENOPENAI']
+
+with open('sample_data/rejeicoes.csv', encoding='utf-8') as database:
     leitor_database = csv.reader(database, delimiter=';')
-# ------------------------------ Criação da list ----------------------------- #
     database_list = list(leitor_database)
-# ----------------------------- Criação da função ---------------------------- #
-def consulta_rej(cod): #Função que consulta as rejeições
-        while True: #Enquanto for Verdadeira a consulta
-            if any (cod in row for row in database_list): #para todo código digitado, é feito uma varredura em cada coluna da lista
-                for row in database_list: #para cada coluna
-                    if cod == row[0]:#Se o código estiver na coluna de índice 0
-                        prompt=f'Como resolver a rejeição {cod} {row[2]}'
-                        response = openai.Completion.create(
-                                                engine = model,
-                                                prompt= prompt,
-                                                max_tokens=4000)
-                        return '\n Tipo de Nota: ' + row[1] +response.choices[0].text #Imprime o tipo de nota de acordo com a coluna índice 1 e a coluna de índice 2 apresentando a descrição
-            else:
-                return'Não encontrado, digite novamente'
-            break  
 
-# ------------------------------ Criação OPEN AI ----------------------------- #
 
-openai.api_key= #insira aqui sua chave da Open AI
+def facts_to_str(user_data: Dict[str, str]) -> str:
+    """Helper function for formatting the gathered user info."""
+    facts = [f"{key} - {value}" for key, value in user_data.items()]
+    return "\n".join(facts).join(["\n", "\n"])
 
-model = 'text-davinci-003'
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start the conversation and ask user for input."""
+    await update.message.reply_text(
+        "Oi! Meu nome é sefazopenaibot. \nA partir de agora eu tentarei te ajudar. "
+        "\nQual o tópico voce precisa de ajuda?"
+        "\nEnvie no chat os tópicos abaixo ou utilize o menu auxiliar."
+        "\nErros de Rejeição"
+        "\nPesquisar"
+        "\nSair",
+        reply_markup=markup,
+    )
 
-# --------------------------- Criação da Interface --------------------------- #
+    return TYPING_CHOICE
 
-class InterfaceGUI(tk.Frame): #Comando incial para uma janela gráfica
-    def __init__(self, master=None): #Função que dá início a janela gráfica, trabalha seu próprio master, parâmetro principal
-       super().__init__(master) #Inicializa a base tk.Frame 
-       self.master = master
-       self.master.title('Consulta de Rejeições - SEFAZ') #Define título
-       self.pack() #Exibe a Janela
-       
-       self.create_widgets() #Inicializa a definição dos widgets que vamos adicionar
+async def regular_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask the user for info about the selected predefined choice."""
+    text = update.message.text
+    context.user_data["choice"] = text
+    
+    match text:
+      case 'Erros de Rejeição':
+        await update.message.reply_text(f"Você escolheu {text.lower()}. Poderia me informar somente o código numérico do erro?")
+        return TYPING_REPLY 
+         
+      case 'Sair':
+        await update.message.reply_text(
+        f"Obrigado por utilizar o meu serviço, para utilizar novamente digite /start aqui no chat.",            
+        reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+      
+      case _:
+        await update.message.reply_text(
+        "Tópico inválido. "
+        "\nQual o tópico voce precisa de ajuda?"
+        "\nEnvie no chat os tópicos abaixo ou utilize o menu auxiliar."
+        "\nErros de Rejeição"
+        "\nPesquisar"
+        "\nSair",
+        reply_markup=markup)
+        return TYPING_CHOICE
 
-    def create_widgets(self,height=10): #Trabalha sobre o própria função
-        self.cod_label = tk.Label(self, text='Código de Rejeição') #Imprime um Label na tela com o título código da rejeição
-        self.cod_label.pack(side='top') #Exibe o widget acima no lado esquerdo da tela
-        
-        self.cod_entry = tk.Entry(self) #Cria a caixa de Entrada para preenchimento do Código
-        self.cod_entry.pack(side='left') #Exbie a caixa de entrada na esquerda da tela
-        
-        self.consultar_button = tk.Button(self, text='Consultar Código', command=self.consultar_rej) #Cria um botão na tela que permite a consulta de código e executa a função Consultar Rej criada no início do código
-        self.consultar_button.pack(side='left') #Exibe o botão no lado esquerdo da tela
-        
-        self.result_label = tk.Label(self,text='')#Colocando os resultados na tela
-        self.result_label.pack(side='top', pady=10)#Centralizando resultados
-        
-    def consultar_rej(self): #Cria uma função que busca as informações relacionadas ao código de rejeição inserido
-        cod = self.cod_entry.get() #Busca o valor da caixa de entrada onde foi inserida as informações
-        response_gpt = consulta_rej(cod)
-        resultado = response_gpt
-        self.result_label.config(text=resultado) #Insere como parâmetro de resposta o resultado da consulta no campo result_label
-        self.result_label.config(text=response_gpt, wraplength=600, justify='left')
+async def received_information(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store info provided by user and ask for the next category."""
+    user_data = context.user_data
+    text = update.message.text
+    
+    if text != 'Sair':
+      category = user_data["choice"]
+      user_data[category] = text
+      del user_data["choice"]
+      
+      length = len(facts_to_str(user_data))
+      cod = facts_to_str(user_data)[length - 4:]
+      cod = cod.strip()
+      isok = 'n'
+      
+      while True:
+          if any(cod in row for row in database_list):
+              for row in database_list:
+                  if cod == row[0]:
+                      isok = 's'
+          else:
+            isok = 'n'
+          break
 
-root = tk.Tk()
-app = InterfaceGUI(master=root)
-app.mainloop()
+      if cod != "" and isok == 's':
+        await update.message.reply_text(
+        "Legal! Para seu conhecimento, isso é o que você requisitou:"
+        f"{facts_to_str(user_data)}Você pode pesquisar o código ou tabém pode alterar o código do erro se quiser.{chr(10)}Envie no chat os tópicos abaixo ou utilize o menu auxiliar.{chr(10)}Erros de Rejeição{chr(10)}Pesquisar{chr(10)}Sair",
+        reply_markup=markup,
+        )
+        return CHOOSING
+      else:
+        if cod == "":
+          await update.message.reply_text(
+          "Escolha um tópico que voce precisa de ajuda."
+          "\nEnvie no chat os tópicos abaixo ou utilize o menu auxiliar."
+          "\nErros de Rejeição"
+          "\nPesquisar"
+          "\nSair",
+          reply_markup=markup,
+          )
+          return TYPING_CHOICE
+        else:
+          await update.message.reply_text(
+          f"Código não cadastrado, favor utilizar um código válido.{chr(10)}"
+          "Escolha um tópico que voce precisa de ajuda."
+          "\nEnvie no chat os tópicos abaixo ou utilize o menu auxiliar."
+          "\nErros de Rejeição"
+          "\nPesquisar"
+          "\nSair",        
+          reply_markup=markup)
+          return TYPING_CHOICE
+    else:
+      await update.message.reply_text(
+      f"Obrigado por utilizar o meu serviço, para utilizar novamente digite /start aqui no chat.",            
+      reply_markup=ReplyKeyboardRemove())
+      return ConversationHandler.END
+
+async def pesquisar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display the gathered info and end the conversation."""
+    print(context.user_data)
+    user_data = context.user_data
+    if "choice" in user_data:
+        del user_data["choice"]
+    length = len(facts_to_str(user_data))
+    cod = facts_to_str(user_data)[length - 4:]
+    cod = cod.strip()
+     
+    while True:
+        if any(cod in row for row in database_list):
+            for row in database_list:
+                if cod == row[0]:
+                    isok = 's'
+        else:
+          isok = 'n'
+        break
+
+    if cod != "" and isok == 's':
+      response_gpt = consulta_rej(cod)
+
+      await update.message.reply_text(
+          f"Aqui está uma possível solução para:{chr(10)} {chr(10)} {response_gpt}{chr(10)}{chr(10)}Obrigado por utilizar o meu serviço, para utilizar novamente digite /start aqui no chat.",
+          reply_markup=ReplyKeyboardRemove(),
+      )
+
+      user_data.clear()
+      return ConversationHandler.END
+    
+    else:
+      await update.message.reply_text(
+      f"Código da rejeição não é válido ou não foi informado, favor utilizar um código válido.{chr(10)}"
+      "Escolha um tópico que voce precisa de ajuda."
+      "\nEnvie no chat os tópicos abaixo ou utilize o menu auxiliar."
+      "\nErros de Rejeição"
+      "\nPesquisar"
+      "\nSair",        
+      reply_markup=markup)
+      return TYPING_CHOICE
+
+
+
+async def sair(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    print('pesquisar: ' + facts_to_str(context.user_data))
+    text = update.message.text
+    context.user_data["choice"] = text
+    await update.message.reply_text(
+      f"Obrigado por utilizar o meu serviço, para utilizar novamente digite /start aqui no chat.",            
+      reply_markup=ReplyKeyboardRemove(),
+    )
+
+def consulta_rej(cod):
+    openai.api_key = tokenopneai
+    while True:
+        if any(cod in row for row in database_list):
+            for row in database_list:
+                if cod == row[0]:
+                    prompt = 'Como resolver o código ' + cod + ' ' + row[2]
+                    response = openai.Completion.create(
+                        engine='text-davinci-003',
+                        prompt=prompt,
+                        max_tokens=4000
+                    )
+                    return 'Tipo de Nota: ' + row[1] + '\nErro código: ' + cod + ' - ' + row[2] + '\n' + response.choices[0].text
+        else:
+            return 'Não encontrado, digite novamente'
+        break
+
+def main() -> None:
+    """Run the bot."""
+    # Create the Application and pass it your bot's token.
+    application = ApplicationBuilder().token(tokenbot).build()
+
+    # Add conversation handler with the states CHOOSING, TYPING_CHOICE and TYPING_REPLY
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            CHOOSING: [
+                MessageHandler(
+                    filters.Regex("^(Erros de Rejeição)$"), 
+                    regular_choice
+                ),
+            ],
+            TYPING_CHOICE: [
+                MessageHandler(
+                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Pesquisar$")), 
+                    regular_choice
+                )
+            ],
+            TYPING_REPLY: [
+                MessageHandler(
+                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Pesquisar$")),
+                    received_information,
+                )
+            ],
+        },
+        fallbacks=[
+            MessageHandler(
+                filters.Regex("^Pesquisar$"), pesquisar
+                )
+            ],
+    )
+
+    application.add_handler(conv_handler)
+
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling()
+
+
+if __name__ == '__main__':
+    main()
