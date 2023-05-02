@@ -24,3 +24,4 @@ O repositório está no meu Github, segue o link abaixo:
 https://lnkd.in/dgVhWWE8
 
 Espero que possa ajudar todos que estudam Python e interessados em Contabilidade com muita inovação!
+
